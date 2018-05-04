@@ -4,6 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Portion change in size expected between trunk buckets. */
+#define TRUNK_BUCKET_DIFF_THRESH 0.2
+/* Portion change in size expected trunk and widest buckets on tree. */
+#define TRUNK_BUCKET_MAXDIFF_THRESH 5
+
 /* Define this as a standard way to fail. */
 #define _EXIT_FAIL(msg_prefix) { \
     perror (msg_prefix); \
@@ -20,6 +25,8 @@
   if ((ptr = realloc (sz)) == NULL) \
     _EXIT_FAIL ("Error in _safe_realloc on reallocating memory") \
   }
+
+#define _square_dist(x1, x2, y1, y2) (((x1-x2)*(x1-x2)) + ((y1-y2)*(y1-y2)))
 
 /*
  * tree_pointdata_t: Container datatype for all
@@ -71,4 +78,4 @@ double tree_pointdata_get_trunkdiam (tree_pointdata_t *);
 double tree_pointdata_get_height (tree_pointdata_t *);
 double tree_pointdata_get_maxbranchdiam (tree_pointdata_t *);
 
-#endif
+#endif /* TREEPOINT_DATA_H */

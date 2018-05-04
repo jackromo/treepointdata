@@ -3,8 +3,7 @@
 #include <stdio.h>
 
 
-int
-main (void)
+main ()
 {
   char *files[4] = {
      "data/Tree1.txt",
@@ -31,6 +30,4 @@ main (void)
         tree_pointdata_get_maxbranchdiam (data));
     printf ("===========================\n");
   }
-
-  return 0;
 }
