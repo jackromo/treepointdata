@@ -20,6 +20,9 @@ main (void)
     printf ("\nData for file %s\n", files[i]);
 
     tree_pointdata_t *data = tree_pointdata_init (files[i]);
+
+    process_tree_pointdata (data);
+
     printf ("Trunk diamater: %d\n",
         tree_pointdata_get_trunkdiam (data));
     printf ("Tree height: %d\n",

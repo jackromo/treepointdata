@@ -50,13 +50,22 @@ typedef struct tree_pointdata {
   double **x_z_bucket;
   double **y_z_bucket;
   unsigned int *z_bucket_lengths;
+  unsigned int z_num_buckets;
   /* Range of Z-values per bucket. */
 #define ZBUCKET_RANGE 0.1;
 #define ZBUCKET_SIZE 200;
+
+  char processed; /* == 1 if processed, 0 if not */
+
+  /* Below are for after processing done. */
+  double trunkdiam; /* Trunk diameter */
+  double maxbranchdiam; /* Max branch diameter */
+  double treeheight; /* Tree height */
 } tree_pointdata_t;
 
 tree_pointdata_t *tree_pointdata_init (char *);
 
+void process_tree_pointdata (tree_pointdata_t *);
 
 double tree_pointdata_get_trunkdiam (tree_pointdata_t *);
 double tree_pointdata_get_height (tree_pointdata_t *);
