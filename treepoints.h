@@ -51,11 +51,12 @@ typedef struct tree_pointdata {
   double max_z;
   double min_z;
   /*
-   * Buckets for X-coordinates and Y-coordinates of all
-   * points in certain ranges of Z-values, respectively.
+   * Buckets for X/Y/Z-coordinates of all points in
+   * certain ranges of Z-values, respectively.
    */
   double **x_z_bucket;
   double **y_z_bucket;
+  double **z_z_bucket;
   unsigned int *z_bucket_lengths;
   unsigned int z_num_buckets;
   /* Range of Z-values per bucket. */

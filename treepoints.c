@@ -109,6 +109,7 @@ tree_pointdata_init (const char *path)
 
   _safe_malloc (data->x_z_bucket, sizeof(double *) * num_buckets)
   _safe_malloc (data->y_z_bucket, sizeof(double *) * num_buckets)
+  _safe_malloc (data->z_z_bucket, sizeof(double *) * num_buckets)
   _safe_malloc (data->z_bucket_lengths, sizeof(unsigned int) * num_buckets)
 
   unsigned int curr_bucket_lengths[num_buckets];
@@ -117,6 +118,7 @@ tree_pointdata_init (const char *path)
   {
     _safe_malloc (data->x_z_bucket[j], sizeof(double) * ZBUCKET_SIZE)
     _safe_malloc (data->y_z_bucket[j], sizeof(double) * ZBUCKET_SIZE)
+    _safe_malloc (data->z_z_bucket[j], sizeof(double) * ZBUCKET_SIZE)
     data->z_bucket_lengths[j] = 0;
   }
 
@@ -136,10 +138,13 @@ tree_pointdata_init (const char *path)
           sizeof(double) * curr_bucket_lengths[bucket])
       _safe_realloc (data->y_z_bucket[bucket],
           sizeof(double) * curr_bucket_lengths[bucket])
+      _safe_realloc (data->z_z_bucket[bucket],
+          sizeof(double) * curr_bucket_lengths[bucket])
     }
 
     data->x_z_bucket[bucket][in_bucket_pos] = x;
     data->y_z_bucket[bucket][in_bucket_pos] = y;
+    data->z_z_bucket[bucket][in_bucket_pos] = z;
 
     data->z_bucket_lengths[bucket]++;
   }
@@ -404,10 +409,84 @@ process_tree_pointdata (tree_pointdata_t *data)
       trunk_farthest_y, trunk_avg_y
       ));
 
-  /* TODO: find tree height */
+  /*
+   * TODO: find tree height
+   * Do this in several stages:
+   * 1. Generate a circle around trunk based on highest trunk
+   * bucket, with a margin of error. We will expect a similar
+   * number of points within this circle in lower buckets
+   * if they contain the trunk. (This assumes the trunk is
+   * straight.)
+   * 2. Skip buckets below until reaching one of significant
+   * difference in size to the highest trunk bucket.
+   * 3. Keep going, checking points within the circle rather
+   * than just all points. Find the last one with a similar
+   * count in this region, bounded only below now.
+   * 4. Within this bucket, find the nearest point outside.
+   * This will be the considered height for the ground.
+   * 5. Take difference between max_z and this value.
+   *
+   * If the trunk isn't of consistent width, this method
+   * will underestimate the height. If not straight, it
+   * will state the height is the first major point
+   * where the ground starts appearing, even if far away.
+   */
 
+  circ_t trunk_err_circ;
 
-  /* Find tree height */
+  trunk_err_circ.x = trunk_avg_x;
+  trunk_err_circ.y = trunk_avg_y;
+  trunk_err_circ.rad = (data->trunkdiam / 2) * (1 + TRUNK_BUCKET_DIFF_THRESH);
+
+  int curr_bucket;
+
+  for (curr_bucket = max_trunkbucket;
+       abs (data->z_bucket_lengths[curr_bucket] - data->z_bucket_lengths[max_trunkbucket])
+       < (TRUNK_BUCKET_DIFF_THRESH * data->z_bucket_lengths[max_trunkbucket]);
+       curr_bucket--)
+    ;
+
+  /* Search for bucket below start of ground where trunk ends  */
+  int in_trunkerr_count = data->z_bucket_lengths[max_trunkbucket];
+  for (/**/
+      ; abs (in_trunkerr_count - data->z_bucket_lengths[max_trunkbucket])
+        < (TRUNK_BUCKET_DIFF_THRESH * data->z_bucket_lengths[max_trunkbucket])
+      ; curr_bucket--)
+  {
+    in_trunkerr_count = 0;
+    for (int i = 0; i < data->z_bucket_lengths[curr_bucket]; i++)
+    {
+      double sqdist = _square_dist (
+          data->x_z_bucket[curr_bucket][i], trunk_err_circ.x,
+          data->y_z_bucket[curr_bucket][i], trunk_err_circ.y
+          );
+      if (sqdist < (trunk_err_circ.rad * trunk_err_circ.rad))
+        in_trunkerr_count++;
+    }
+  }
+  /* Go back to bucket that failed (decremented after failing iteration) */
+  curr_bucket += 2;
+
+  /* Find closest point outside circle in bucket. Get its z-coordinate */
+  double closest_outside_z = data->z_z_bucket[curr_bucket][0];
+  double closest_outside_dist = trunk_err_circ.rad * trunk_err_circ.rad * 16;
+  for (int i = 0; i < data->z_bucket_lengths[curr_bucket]; i++)
+  {
+    double sqdist = _square_dist (
+        data->x_z_bucket[curr_bucket][i], trunk_err_circ.x,
+        data->y_z_bucket[curr_bucket][i], trunk_err_circ.y
+        );
+    if (sqdist > (trunk_err_circ.rad * trunk_err_circ.rad)
+        && sqdist < closest_outside_dist)
+    {
+      closest_outside_dist = sqdist;
+      closest_outside_z = data->z_z_bucket[curr_bucket][i];
+    }
+  }
+
+  data->treeheight = data->max_z - closest_outside_z;
+
+  /* Find max branch diameter */
 
   double *bush_xs, *bush_ys;
 
