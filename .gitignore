@@ -1,1 +1,4 @@
+!data/.keep
 data/
+!build/.keep
+build/
