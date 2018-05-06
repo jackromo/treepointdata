@@ -40,8 +40,7 @@ quantified with reasonable guesses made beforehand.)
 After this, we take all buckets above this one as the
 tree bush. We can then flatten the bush vertically and
 only consider x-y coordinates. Next, we draw the convex
-hull and find the largest line through the center of the
-bush (ie. from the furthest point to the other side),
+hull and find the largest line between points on it,
 calling this the maximum diameter. We don't use the
 circle method like the trunk, as the bush could be less
 circular overall.

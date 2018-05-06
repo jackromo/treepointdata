@@ -1,5 +1,6 @@
 #include "treepoints.h"
 #include <stdio.h>
+#include <stdbool.h>
 #include <errno.h>
 #include <math.h>
 
@@ -63,7 +64,7 @@ tree_pointdata_init (const char *path)
     _EXIT_FAIL ("Error in tree_pointdata_init on reading file")
 
   /* Read file line-by-line for coordinates. */
-  while ((read = _readline (&line, &len, 255, inp_file)) != -1)
+  while ((read = _readline (line, &len, 255, inp_file)) != -1)
   {
     int x, y, z;
     sscanf (line, "%d, %d, %d", &x, &y, &z);
@@ -148,40 +149,174 @@ tree_pointdata_init (const char *path)
   return data;
 }
 
+/*
+ * cos_from_xaxis:
+ * Find the cosine between two vectors,
+ * O->P and O->[1, 0].
+ */
+inline double
+cos_from_xaxis (double ox, double oy,
+                double px, double py)
+{
+  double sqlen = ((px - ox) * (px - ox)) + ((py - oy) * (py - oy));
+  return (px - ox) / sqrt (sqlen);
+}
+
+/*
+ * get_convhull_indices:
+ * Get all indices of points in the convex hull
+ * of a set of points.
+ * Has the side effect of sorting the point list
+ * by angle to the lowest point on the y-axis.
+ */
 int *
 get_convhull_indices (double *xs, double *ys, int count)
 {
-  double avg_x, avg_y;
+  /*
+   * We use Graham's scan, which is a O(nlogn)
+   * complexity algorithm, so should be suitably
+   * fast for large numbers of points.
+   */
+
+  double lowest_x, lowest_y;
   double max_dist, farthest_x, farthest_y;
 
   for (int i = 0; i < count; i++)
   {
     /* Update average this way to avoid overflow, even if much slower. */
-    double c = 1 / ((double) i + 1);
-    double d = i / ((double) i + 1);
-    avg_x = (avg_x * d) + (xs[i] * c);
-    avg_y = (avg_y * d) + (ys[i] * c);
-  }
-
-  for (int i = 0; i < count; i++)
-  {
-    double sqdist = _square_dist (xs[i], avg_x, ys[i], avg_y);
-    if (dist >= max_dist)
+    if (ys[i] <= lowest_y)
     {
-      max_dist = dist;
-      farthest_x = xs[i];
-      farthest_y = ys[i];
+      lowest_x = xs[i];
+      lowest_y = ys[i];
     }
   }
 
-  int *convhull_indices, convhull_size;
-  _safe_malloc (convhull_indices, sizeof (int) * count)
+  /*
+   * Quicksort xs and ys in-place by angle to
+   * (lowest_x, lowest_y).
+   * We can't use inbuilt qsort, as we are sorting
+   * two lists (xs and ys) as one.
+   */
+  int *pivots1, *pivots2;
+  _safe_malloc (pivots1, sizeof (int) * (count+1))
+  _safe_malloc (pivots2, sizeof (int) * (count+1))
+  pivots1[0] = 0;
+  pivots2[1] = count;
+  int pivots_len = 2;
+  /* Finish when every point has a pivot, along with one extra at the end. */
+  while (pivots_len <= count)
+  {
+    int pivots_top;
+    for (int i = 0; i < (pivots_len - 1); i++)
+    {
+      if (pivots1[i] >= count)
+        continue;
+      /* Sort everything between next two pivots, using the current pivot. */
+      int lo = pivots1[i];
+      int hi = pivots1[i+1]-1;
+      int curr_top = lo;
+      if (hi - lo <= 1)
+      {
+        pivots2[pivots_top] = lo;
+        pivots_top++;
+      }
+      else
+      {
+        for (int j = lo; j <= hi; j++)
+        {
+          int topx = xs[curr_top];
+          int topy = ys[curr_top];
+          int x = xs[j];
+          int y = ys[j];
+          double top_cos = cos_from_xaxis (lowest_x, lowest_y, topx, topy);
+          double cur_cos = cos_from_xaxis (lowest_x, lowest_y, topx, topy);
+          if (cur_cos < top_cos)
+          {
+            xs[j] = topx;
+            ys[j] = topy;
+            xs[curr_top] = x;
+            ys[curr_top] = y;
+            curr_top++;
+          }
+        }
+        /* curr_top and lo are the next two pivots. */
+        pivots2[pivots_top] = curr_top;
+        pivots2[pivots_top+1] = lo;
+        pivots_top += 2;
+      }
+    }
+    /*
+     * Swap pivots1 and pivots2. Set highest 'pivot'
+     * (never accessed) to count as an upper bound.
+     */
+    pivots2[pivots_top] = count;
+    pivots_len = pivots_top+1;
+    int *temp = pivots1;
+    pivots1 = pivots2;
+    pivots2 = temp;
+  }
 
-  /* Iterate through each point on hull. */
-  double curr_x = farthest_x;
-  double curr_y = farthest_y;
+  bool *in_convhull;
+  int convhull_sz = count;
+  _safe_malloc (in_convhull, sizeof (bool) * count)
 
-  /* TODO */
+  /*
+   * Now iterate through all points, checking if they
+   * are in the hull or not.
+   */
+  in_convhull[0] = true;
+  in_convhull[1] = true;
+  for (int i = 2; i < count; i++)
+  {
+    in_convhull[i] = true;
+    /*
+     * At each new point, we expect the next angle to give a
+     * 'left turn' of angle as we go. We can find if this is
+     * true by, for current point p1, prev point p2 and earlier
+     * point p3, taking the z-coordinate of the cross product
+     * of p1->p3 and p1->p2. If negative, it is a right turn
+     * and thus p2 is not in the convex hull. (This might take
+     * drawing out to better visualize!)
+     */
+    int prev1 = i - 1;
+    while (!in_convhull[prev1] && prev1 > 0)
+      prev1--;
+    int prev2 = prev1 - 1;
+    while (!in_convhull[prev2] && prev2 > 0)
+      prev2--;
+    /* while cross prod < 0 */
+    while (((xs[prev2] - xs[i]) * (ys[prev1] - ys[i]))
+           < ((ys[prev2] - ys[i]) * (xs[prev1] - xs[i])))
+    {
+      in_convhull[prev1] = false;
+      convhull_sz--;
+      while (!in_convhull[prev1] && prev1 > 0)
+        prev1--;
+      prev2 = prev1 - 1;
+      while (!in_convhull[prev2] && prev2 > 0)
+        prev2--;
+    }
+  }
+
+  /*
+   * Finally, accumulate points in convex hull in a
+   * -1-terminated list of indices.
+   */
+
+  int *conv_indices, convindices_top;
+  _safe_malloc (conv_indices, sizeof (int) * (convhull_sz + 1))
+
+  for (int i = 0; i < convhull_sz; i++)
+  {
+    if (in_convhull[i])
+    {
+      conv_indices[convindices_top] = i;
+      convindices_top++;
+    }
+  }
+  conv_indices[convindices_top] = -1;
+
+  return conv_indices;
 }
 
 /*
@@ -198,7 +333,7 @@ process_tree_pointdata (tree_pointdata_t *data)
   int max_trunkbucket = -1;
 
   int curr = data->z_num_buckets - 2;
-  int prev = data->z_num_buckets - 1
+  int prev = data->z_num_buckets - 1;
 
   int bush_size;
 
@@ -235,7 +370,8 @@ process_tree_pointdata (tree_pointdata_t *data)
   if (max_trunkbucket == -1)
     _EXIT_FAIL ("Error in process_tree_pointdata from failing to find trunk top")
 
-  /* find trunk diameter */
+  /* Find trunk diameter */
+
   double trunk_avg_x, trunk_farthest_x;
   double trunk_avg_y, trunk_farthest_y;
   double trunk_max_dist;
@@ -254,9 +390,9 @@ process_tree_pointdata (tree_pointdata_t *data)
         data->y_z_bucket[max_trunkbucket][i],
         trunk_avg_y
         );
-    if (dist >= trunk_max_dist)
+    if (sqdist >= trunk_max_dist)
     {
-      trunk_max_dist = dist;
+      trunk_max_dist = sqdist;
       trunk_farthest_x = data->x_z_bucket[max_trunkbucket][i];
       trunk_farthest_y = data->y_z_bucket[max_trunkbucket][i];
     }
@@ -269,6 +405,9 @@ process_tree_pointdata (tree_pointdata_t *data)
       ));
 
   /* TODO: find tree height */
+
+
+  /* Find tree height */
 
   double *bush_xs, *bush_ys;
 
@@ -288,10 +427,62 @@ process_tree_pointdata (tree_pointdata_t *data)
     }
   }
 
-  int *convhull_indices = get_convhull_indices (bush_xs, bush_ys, i);
+  int *conv_indices = get_convhull_indices (bush_xs, bush_ys, i);
+  int convind_sz;
+  for (convind_sz = 0; conv_indices[convind_sz] != -1; convind_sz++)
+    ;
 
-  /* TODO: get line through furthest and middle points,
-   * see where it hits other side of hull*/
+  /*
+   * Converge on furthest points away from one
+   * another in hull. This is doable by the nature
+   * of a convex hull in linear time.
+   */
+  int pt1 = conv_indices[0];
+  int pt2 = conv_indices[1];
+
+  while (1)
+  {
+    /* Test adjacent points. */
+    int adjpts1[3] = {
+      (pt1 == 0 ? convind_sz-1 : pt1-1),
+      pt1,
+      (pt1 == convind_sz-1 ? 0 : pt1+1)};
+    int adjpts2[3] = {
+      (pt2 == 0 ? convind_sz-1 : pt2-1),
+      pt2,
+      (pt2 == convind_sz-1 ? 0 : pt2+1)};
+
+    int pt1_max = pt1;
+    int pt2_max = pt2;
+    double sqdist_max = 0;
+
+    for (int i = 0; i < 3; i++)
+      for (int j = 0; j < 3; j++)
+      {
+        int p1 = adjpts1[i];
+        int p2 = adjpts2[j];
+        double sqdist = _square_dist (
+            bush_xs[p1], bush_xs[p2], bush_ys[p1], bush_ys[p2]
+            );
+        if (sqdist > sqdist_max)
+        {
+          sqdist_max = sqdist;
+          pt1_max = p1;
+          pt2_max = p2;
+        }
+      }
+    if (pt1_max == pt1 && pt2_max == pt2)
+      break;
+    else
+    {
+      pt1 = pt1_max;
+      pt2 = pt2_max;
+    }
+  }
+
+  data->maxbranchdiam = sqrt (_square_dist (
+      bush_xs[pt1], bush_xs[pt2], bush_ys[pt1], bush_ys[pt2]
+      ));
 
   data->processed = 1;
 }

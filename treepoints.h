@@ -16,13 +16,13 @@
   }
 
 /* Helper macros to safely allocate/reallocate memory. */
-#define _safe_malloc(ptr, sz, errmsg_prefix) { \
+#define _safe_malloc(ptr, sz) { \
   if ((ptr = malloc (sz)) == NULL) \
     _EXIT_FAIL ("Error in _safe_malloc on allocating memory") \
   }
 
-#define _safe_realloc(ptr, sz, errmsg_prefix) { \
-  if ((ptr = realloc (sz)) == NULL) \
+#define _safe_realloc(ptr, sz) { \
+  if ((ptr = realloc (ptr, sz)) == NULL) \
     _EXIT_FAIL ("Error in _safe_realloc on reallocating memory") \
   }
 
@@ -59,8 +59,8 @@ typedef struct tree_pointdata {
   unsigned int *z_bucket_lengths;
   unsigned int z_num_buckets;
   /* Range of Z-values per bucket. */
-#define ZBUCKET_RANGE 0.1;
-#define ZBUCKET_SIZE 200;
+#define ZBUCKET_RANGE 0.1
+#define ZBUCKET_SIZE 200
 
   char processed; /* == 1 if processed, 0 if not */
 
@@ -70,7 +70,18 @@ typedef struct tree_pointdata {
   double treeheight; /* Tree height */
 } tree_pointdata_t;
 
-tree_pointdata_t *tree_pointdata_init (char *);
+/*
+ * circ_t: X/Y center and radius of a circle.
+ * Used for finding diameter of branches.
+ */
+typedef struct circ {
+    double x;
+    double y;
+    double rad;
+} circ_t;
+
+
+tree_pointdata_t *tree_pointdata_init (const char *);
 
 void process_tree_pointdata (tree_pointdata_t *);
 
