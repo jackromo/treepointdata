@@ -410,7 +410,7 @@ process_tree_pointdata (tree_pointdata_t *data)
       ));
 
   /*
-   * TODO: find tree height
+   * Find tree height
    * Do this in several stages:
    * 1. Generate a circle around trunk based on highest trunk
    * bucket, with a margin of error. We will expect a similar

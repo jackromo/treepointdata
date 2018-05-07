@@ -84,8 +84,6 @@ typedef struct circ {
 
 tree_pointdata_t *tree_pointdata_init (const char *);
 
-void process_tree_pointdata (tree_pointdata_t *);
-
 double tree_pointdata_get_trunkdiam (tree_pointdata_t *);
 double tree_pointdata_get_height (tree_pointdata_t *);
 double tree_pointdata_get_maxbranchdiam (tree_pointdata_t *);
