@@ -7,7 +7,7 @@
 /* Portion change in size expected between trunk buckets. */
 #define TRUNK_BUCKET_DIFF_THRESH 0.2
 /* Portion change in size expected trunk and widest buckets on tree. */
-#define TRUNK_BUCKET_MAXDIFF_THRESH 5
+#define TRUNK_BUCKET_MAXDIFF_THRESH 9
 
 /* Define this as a standard way to fail. */
 #define _EXIT_FAIL(msg_prefix) { \
@@ -81,11 +81,24 @@ typedef struct circ {
     double rad;
 } circ_t;
 
+/*
+ * cmp_val_t: Comparable value for sorting
+ * list of x-y coordinates. (Don't need Z
+ * coordinates in this case.)
+ */
+typedef struct cmp_val {
+  int ind;
+  double x;
+  double y;
+} cmp_val_t;
+
 
 tree_pointdata_t *tree_pointdata_init (const char *);
 
 double tree_pointdata_get_trunkdiam (tree_pointdata_t *);
 double tree_pointdata_get_height (tree_pointdata_t *);
 double tree_pointdata_get_maxbranchdiam (tree_pointdata_t *);
+
+void tree_pointdata_free (tree_pointdata_t *);
 
 #endif /* TREEPOINT_DATA_H */

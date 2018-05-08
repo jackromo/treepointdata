@@ -5,13 +5,18 @@
 #include <math.h>
 
 
+#define _MAX_LINELEN 1024
+
 ssize_t
-_readline (char *out, size_t *len, size_t maxlen, FILE *fp)
+_readline (char **out, size_t *len, FILE *fp)
 {
-  char linebuf[maxlen];
-  int i;
+  char linebuf[_MAX_LINELEN];
+  int i = 0;
   char c = fgetc (fp);
   linebuf[0] = c;  /* If line is 1 character long at end of file */
+
+  if (feof (fp))
+    return -1;
 
   for (; (!feof (fp)) && (c != '\n'); c = fgetc (fp))
   {
@@ -19,17 +24,19 @@ _readline (char *out, size_t *len, size_t maxlen, FILE *fp)
      * We choose to fail if line exceeds a given length,
      * since we can reasonably guess line length in this case.
      */
-    if (i >= maxlen)
+    if (i >= _MAX_LINELEN)
       return -1;
     linebuf[i] = c;
     i++;
   }
+  linebuf[i] = '\0';
 
-  if ((out = malloc (sizeof(char)*(i+1))) == NULL)
-    return -1;
+  _safe_malloc (*out, sizeof(char) * (i + 1))
 
-  for (int j = 0; j < i; j++)
-    out[j] = linebuf[j];
+  for (int j = 0; j <= i; j++)
+    (*out)[j] = linebuf[j];
+
+  *len = i + 1;
 
   return 0;
 }
@@ -44,13 +51,12 @@ _readline (char *out, size_t *len, size_t maxlen, FILE *fp)
 tree_pointdata_t *
 tree_pointdata_init (const char *path)
 {
-  char *line = NULL;
+  char *line;
   size_t len = 0;
-  ssize_t read;
   tree_pointdata_t *data;
-  int coordlen;
+  int coordlen = 0;
   int curr_coordlen = COORD_LIST_SIZE;
-  int max_z, min_z;
+  double max_z, min_z;
 
   /* Allocate data memory. */
 
@@ -63,20 +69,21 @@ tree_pointdata_init (const char *path)
   if (inp_file == NULL)
     _EXIT_FAIL ("Error in tree_pointdata_init on reading file")
 
-  /* Read file line-by-line for coordinates. */
-  while ((read = _readline (line, &len, 255, inp_file)) != -1)
+  /* Read file line-by-line or coordinates. */
+  while (_readline (&line, &len, inp_file) != -1)
   {
-    int x, y, z;
-    sscanf (line, "%d, %d, %d", &x, &y, &z);
+    double x, y, z;
+
+    sscanf (line, "%lf, %lf, %lf", &x, &y, &z);
 
     if (coordlen >= curr_coordlen)
     {
       /* Reallocate all coord lists to double length. */
-      curr_coordlen << 1;
+      curr_coordlen += COORD_LIST_SIZE;
 
-      _safe_realloc (data->xs, sizeof(tree_pointdata_t)*curr_coordlen)
-      _safe_realloc (data->ys, sizeof(tree_pointdata_t)*curr_coordlen)
-      _safe_realloc (data->zs, sizeof(tree_pointdata_t)*curr_coordlen)
+      _safe_realloc (data->xs, sizeof (double) * curr_coordlen)
+      _safe_realloc (data->ys, sizeof (double) * curr_coordlen)
+      _safe_realloc (data->zs, sizeof (double) * curr_coordlen)
     }
 
     data->xs[coordlen] = x;
@@ -97,9 +104,6 @@ tree_pointdata_init (const char *path)
   data->max_z = max_z;
   data->min_z = min_z;
 
-  if (line)
-    free (line);
-
   if (fclose (inp_file) == EOF)
     _EXIT_FAIL ("Error in tree_pointdata_init on closing file")
 
@@ -112,7 +116,10 @@ tree_pointdata_init (const char *path)
   _safe_malloc (data->z_z_bucket, sizeof(double *) * num_buckets)
   _safe_malloc (data->z_bucket_lengths, sizeof(unsigned int) * num_buckets)
 
-  unsigned int curr_bucket_lengths[num_buckets];
+  unsigned int *curr_bucket_lengths;
+  _safe_malloc (curr_bucket_lengths, sizeof(unsigned int) * num_buckets)
+  for (int j = 0; j < num_buckets; j++)
+    curr_bucket_lengths[j] = ZBUCKET_SIZE;
 
   for (int j = 0; j < (int) ((max_z - min_z) / ZBUCKET_RANGE); j++)
   {
@@ -128,12 +135,15 @@ tree_pointdata_init (const char *path)
     double y = data->ys[j];
     double z = data->zs[j];
 
-    unsigned int bucket = (int) (z / ZBUCKET_RANGE);
+    unsigned int bucket = (unsigned int) ((z - min_z) / ZBUCKET_RANGE);
+    /* Special case if z == max_z */
+    if (bucket == num_buckets)
+      bucket--;
     unsigned int in_bucket_pos = data->z_bucket_lengths[bucket];
 
-    if (in_bucket_pos > curr_bucket_lengths[bucket])
+    if (in_bucket_pos >= curr_bucket_lengths[bucket])
     {
-      curr_bucket_lengths[bucket] << 1;
+      curr_bucket_lengths[bucket] += ZBUCKET_SIZE;
       _safe_realloc (data->x_z_bucket[bucket],
           sizeof(double) * curr_bucket_lengths[bucket])
       _safe_realloc (data->y_z_bucket[bucket],
@@ -150,6 +160,7 @@ tree_pointdata_init (const char *path)
   }
 
   data->z_num_buckets = num_buckets;
+  data->processed = 0;
 
   return data;
 }
@@ -157,32 +168,52 @@ tree_pointdata_init (const char *path)
 /*
  * cos_from_xaxis:
  * Find the cosine between two vectors,
- * O->P and O->[1, 0].
+ * [0,0]->P and O->[1, 0].
  */
-inline double
-cos_from_xaxis (double ox, double oy,
-                double px, double py)
+double
+cos_from_xaxis (double px, double py)
 {
-  double sqlen = ((px - ox) * (px - ox)) + ((py - oy) * (py - oy));
-  return (px - ox) / sqrt (sqlen);
+  return px / sqrt ((px * px) + (py * py));
+}
+
+/*
+ * cmp_cos_indices:
+ * Compare two points, reformed as cmp_val_t
+ * values, by the cosine of their angles
+ * to the origin.
+ */
+int
+cmp_cos_indices (const void *v1, const void *v2)
+{
+  cmp_val_t *ind1 = (cmp_val_t *) v1;
+  cmp_val_t *ind2 = (cmp_val_t *) v2;
+
+  double cos1 = cos_from_xaxis (ind1->x, ind1->y);
+  double cos2 = cos_from_xaxis (ind2->x, ind2->y);
+
+  if (cos1 < cos2)
+    return -1;
+  else if (cos1 == cos2)
+    return 0;
+  else
+    return 1;
 }
 
 /*
  * get_convhull_indices:
  * Get all indices of points in the convex hull
  * of a set of points.
- * Has the side effect of sorting the point list
- * by angle to the lowest point on the y-axis.
  */
 int *
 get_convhull_indices (double *xs, double *ys, int count)
 {
   /*
-   * We use Graham's scan, which is a O(nlogn)
-   * complexity algorithm, so should be suitably
-   * fast for large numbers of points.
+   * Our algorithm is O(nlogn) complexity. We
+   * sort the points by their angle to the lowest
+   * point Y-axis-wise, then accumulate points into
+   * the hull in this order, removing previous points
+   * if they make a concave angle to the current one.
    */
-
   double lowest_x, lowest_y;
   double max_dist, farthest_x, farthest_y;
 
@@ -199,67 +230,22 @@ get_convhull_indices (double *xs, double *ys, int count)
   /*
    * Quicksort xs and ys in-place by angle to
    * (lowest_x, lowest_y).
-   * We can't use inbuilt qsort, as we are sorting
-   * two lists (xs and ys) as one.
+   * We need to produce comparable values rather
+   * than two arrays, and need to zero-adjust them
+   * so the lowest point is at the origin. (This will
+   * have no impact on later computations, as we are
+   * merely producing a list of indices.)
    */
-  int *pivots1, *pivots2;
-  _safe_malloc (pivots1, sizeof (int) * (count+1))
-  _safe_malloc (pivots2, sizeof (int) * (count+1))
-  pivots1[0] = 0;
-  pivots2[1] = count;
-  int pivots_len = 2;
-  /* Finish when every point has a pivot, along with one extra at the end. */
-  while (pivots_len <= count)
+  cmp_val_t *sort_vals;
+  _safe_malloc (sort_vals, sizeof (cmp_val_t) * count)
+  for (int i = 0; i < count; i++)
   {
-    int pivots_top;
-    for (int i = 0; i < (pivots_len - 1); i++)
-    {
-      if (pivots1[i] >= count)
-        continue;
-      /* Sort everything between next two pivots, using the current pivot. */
-      int lo = pivots1[i];
-      int hi = pivots1[i+1]-1;
-      int curr_top = lo;
-      if (hi - lo <= 1)
-      {
-        pivots2[pivots_top] = lo;
-        pivots_top++;
-      }
-      else
-      {
-        for (int j = lo; j <= hi; j++)
-        {
-          int topx = xs[curr_top];
-          int topy = ys[curr_top];
-          int x = xs[j];
-          int y = ys[j];
-          double top_cos = cos_from_xaxis (lowest_x, lowest_y, topx, topy);
-          double cur_cos = cos_from_xaxis (lowest_x, lowest_y, topx, topy);
-          if (cur_cos < top_cos)
-          {
-            xs[j] = topx;
-            ys[j] = topy;
-            xs[curr_top] = x;
-            ys[curr_top] = y;
-            curr_top++;
-          }
-        }
-        /* curr_top and lo are the next two pivots. */
-        pivots2[pivots_top] = curr_top;
-        pivots2[pivots_top+1] = lo;
-        pivots_top += 2;
-      }
-    }
-    /*
-     * Swap pivots1 and pivots2. Set highest 'pivot'
-     * (never accessed) to count as an upper bound.
-     */
-    pivots2[pivots_top] = count;
-    pivots_len = pivots_top+1;
-    int *temp = pivots1;
-    pivots1 = pivots2;
-    pivots2 = temp;
+    sort_vals[i].ind = i;
+    sort_vals[i].x = xs[i] - lowest_x;
+    sort_vals[i].y = ys[i] - lowest_y;
   }
+
+  qsort ((void *) sort_vals, count, sizeof (cmp_val_t), cmp_cos_indices);
 
   bool *in_convhull;
   int convhull_sz = count;
@@ -271,6 +257,7 @@ get_convhull_indices (double *xs, double *ys, int count)
    */
   in_convhull[0] = true;
   in_convhull[1] = true;
+
   for (int i = 2; i < count; i++)
   {
     in_convhull[i] = true;
@@ -290,16 +277,20 @@ get_convhull_indices (double *xs, double *ys, int count)
     while (!in_convhull[prev2] && prev2 > 0)
       prev2--;
     /* while cross prod < 0 */
-    while (((xs[prev2] - xs[i]) * (ys[prev1] - ys[i]))
-           < ((ys[prev2] - ys[i]) * (xs[prev1] - xs[i])))
+    while (((sort_vals[prev2].x - sort_vals[i].x)
+            * (sort_vals[prev1].y - sort_vals[i].y))
+           < ((sort_vals[prev2].y - sort_vals[i].y)
+              * (sort_vals[prev1].x - sort_vals[i].x)))
     {
       in_convhull[prev1] = false;
       convhull_sz--;
       while (!in_convhull[prev1] && prev1 > 0)
         prev1--;
-      prev2 = prev1 - 1;
+      prev2 = (prev1 == 0) ? 0 : (prev1 - 1);
       while (!in_convhull[prev2] && prev2 > 0)
         prev2--;
+      if (prev1 == 0)
+        break;
     }
   }
 
@@ -308,14 +299,15 @@ get_convhull_indices (double *xs, double *ys, int count)
    * -1-terminated list of indices.
    */
 
-  int *conv_indices, convindices_top;
+  int *conv_indices;
+  int convindices_top = 0;
   _safe_malloc (conv_indices, sizeof (int) * (convhull_sz + 1))
 
   for (int i = 0; i < convhull_sz; i++)
   {
     if (in_convhull[i])
     {
-      conv_indices[convindices_top] = i;
+      conv_indices[convindices_top] = sort_vals[i].ind;
       convindices_top++;
     }
   }
@@ -350,16 +342,14 @@ process_tree_pointdata (tree_pointdata_t *data)
     else
     {
       int diff = data->z_bucket_lengths[curr] - data->z_bucket_lengths[prev];
-      double ratio_diff = ((double) diff) / ((double) data->z_bucket_lengths[curr]);
-      if (-TRUNK_BUCKET_DIFF_THRESH <= ratio_diff
-          && ratio_diff <= TRUNK_BUCKET_DIFF_THRESH)
+      double ratio_diff = fabs(((double) diff) / ((double) data->z_bucket_lengths[curr]));
+      if (ratio_diff <= TRUNK_BUCKET_DIFF_THRESH)
       {
         int max_diff = data->z_bucket_lengths[curr_maxbucket]
                        - data->z_bucket_lengths[curr];
-        double ratio_maxdiff = ((double) max_diff)
-                               / ((double) data->z_bucket_lengths[curr]);
-        if (-TRUNK_BUCKET_MAXDIFF_THRESH <= ratio_diff
-            && ratio_diff <= TRUNK_BUCKET_MAXDIFF_THRESH)
+        double ratio_maxdiff = fabs(((double) max_diff)
+                                    / ((double) data->z_bucket_lengths[curr]));
+        if (ratio_maxdiff >= TRUNK_BUCKET_MAXDIFF_THRESH)
         {
           /* We have reached the highest trunk bucket */
           max_trunkbucket = curr;
@@ -387,6 +377,9 @@ process_tree_pointdata (tree_pointdata_t *data)
     trunk_avg_y += data->y_z_bucket[max_trunkbucket][i];
   }
 
+  trunk_avg_x /= data->z_bucket_lengths[max_trunkbucket];
+  trunk_avg_y /= data->z_bucket_lengths[max_trunkbucket];
+
   for (int i = 0; i < data->z_bucket_lengths[max_trunkbucket]; i++)
   {
     double sqdist = _square_dist (
@@ -404,7 +397,7 @@ process_tree_pointdata (tree_pointdata_t *data)
   }
 
   /* Trunk diameter = diameter of smallest encompassing circle */
-  data->trunkdiam = sqrt (2 * _square_dist (
+  data->trunkdiam = 2 * sqrt (_square_dist (
       trunk_farthest_x, trunk_avg_x,
       trunk_farthest_y, trunk_avg_y
       ));
@@ -493,7 +486,7 @@ process_tree_pointdata (tree_pointdata_t *data)
   _safe_malloc (bush_xs, sizeof (double) * bush_size)
   _safe_malloc (bush_ys, sizeof (double) * bush_size)
 
-  int i;
+  int i = 0;
 
   /* Collect bush x/y coords. */
   for (curr = data->z_num_buckets - 1; curr > max_trunkbucket; curr--)
@@ -572,6 +565,7 @@ tree_pointdata_get_trunkdiam (tree_pointdata_t *data)
   if (!data->processed)
     process_tree_pointdata (data);
 
+
   return data->trunkdiam;
 }
 
@@ -591,4 +585,23 @@ tree_pointdata_get_maxbranchdiam (tree_pointdata_t *data)
     process_tree_pointdata (data);
 
   return data->maxbranchdiam;
+}
+
+void
+tree_pointdata_free (tree_pointdata_t *data)
+{
+  free (data->xs);
+  free (data->ys);
+  free (data->zs);
+  for (int i = 0; i < data->z_num_buckets; i++)
+  {
+    free (data->x_z_bucket[i]);
+    free (data->y_z_bucket[i]);
+    free (data->z_z_bucket[i]);
+  }
+  free (data->x_z_bucket);
+  free (data->y_z_bucket);
+  free (data->z_z_bucket);
+  free (data->z_bucket_lengths);
+  free (data);
 }

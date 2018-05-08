@@ -20,12 +20,14 @@ main ()
 
     tree_pointdata_t *data = tree_pointdata_init (files[i]);
 
-    printf ("Trunk diamater: %f\n",
+    printf ("Trunk diameter: %f\n",
         tree_pointdata_get_trunkdiam (data));
     printf ("Tree height: %f\n",
         tree_pointdata_get_height (data));
     printf ("Max branch diameter: %f\n",
         tree_pointdata_get_maxbranchdiam (data));
     printf ("===========================\n");
+
+    tree_pointdata_free (data);
   }
 }
