@@ -1,11 +1,22 @@
-Our strategy will have several stages. When we observe
-the size of each z-bucket, we expect to see, from high
-to low:
-- A continuous increase to a local maximum (the widest
-  point on the tree),
-- A continuous decrease after this towards the trunk,
-- A series of somewhat consistent sizes at the trunk,
-- A sudden increase at the ground.
+# Tree Point Cloud
+
+This program finds the trunk diameter, tree height and max
+branch diameter of a tree.
+
+It is MinGW-64 compliant on Windows, rather than natively
+compliant.
+
+# Strategy
+
+Our strategy will have several stages. First, we gather
+points into buckets of Z-coordinate ranges, which we
+will term z-buckets for now. When we observe the size
+of each z-bucket, we expect to see, from high to low:
+1. A continuous increase to a local maximum (the widest
+point on the tree),
+2. A continuous decrease after this towards the trunk,
+3. A series of somewhat consistent sizes at the trunk,
+4. A sudden increase at the ground.
 
 Our underlying assumption in the above is that,
 for the point cloud, more points means a greater size,
