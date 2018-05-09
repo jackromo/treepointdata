@@ -5,11 +5,12 @@
 
 main ()
 {
+  /* Files are relative to build directory. */
   char *files[4] = {
-     "data/Tree1.txt",
-     "data/tree2b.txt",
-     "data/tree3.txt",
-     "data/tree4.txt"
+     "../data/Tree1.txt",
+     "../data/tree2b.txt",
+     "../data/tree3.txt",
+     "../data/tree4.txt"
   };
 
   printf ("=== Tree Point Cloud Project ===\n");
