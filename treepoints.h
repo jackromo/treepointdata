@@ -26,29 +26,6 @@
       _EXIT_FAIL ("Error in _safe_realloc on reallocating memory") \
   }
 
-/* Special malloc and free for mallocs that should vanish after scope. */
-
-#define _safe_tempmalloc_init() \
-  void **__temp_mallocs; \
-  int __tempmalloc_count = 0; \
-  int __tempmallocs_size = 100; \
-  _safe_malloc (__temp_mallocs, sizeof (void *) * __tempmallocs_size)
-
-#define _safe_malloc_temp(ptr, sz) { \
-    if (__tempmalloc_count >= __tempmallocs_size) { \
-      __tempmallocs_size += 100; \
-      _safe_realloc (__temp_mallocs, sizeof (void *) * __tempmallocs_size) \
-    } \
-    _safe_malloc (ptr, sz); \
-    __temp_mallocs[__tempmalloc_count++] = (void *) ptr; \
-  }
-
-#define _free_temp_mallocs() { \
-    for (int i = 0; i < __tempmalloc_count; i++) \
-      free (__temp_mallocs[i]); \
-    free (__temp_mallocs); \
-  }
-
 #define _square_dist(x1, x2, y1, y2) (((x1-x2)*(x1-x2)) + ((y1-y2)*(y1-y2)))
 
 /*
