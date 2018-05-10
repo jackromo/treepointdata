@@ -3,8 +3,8 @@
 This program finds the trunk diameter, tree height and max
 branch diameter of a tree.
 
-It is MinGW-64 compliant on Windows, rather than natively
-compliant.
+It is built with MinGW-64 on Windows, and can work on
+both Windows and Linux.
 
 # Strategy
 
