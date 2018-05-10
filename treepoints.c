@@ -7,6 +7,10 @@
 
 #define _MAX_LINELEN 1024
 
+/*
+ * _readline:
+ * Read a single line of upper-bounded length.
+ */
 ssize_t
 _readline (char **out, size_t *len, FILE *fp)
 {
@@ -25,13 +29,16 @@ _readline (char **out, size_t *len, FILE *fp)
      * since we can reasonably guess line length in this case.
      */
     if (i >= _MAX_LINELEN)
+    {
+      linebuf[_MAX_LINELEN - 1] = '\0';
       return -1;
+    }
     linebuf[i] = c;
     i++;
   }
   linebuf[i] = '\0';
 
-  _safe_malloc (*out, sizeof(char) * (i + 1))
+  _safe_malloc (*out, sizeof(char) * (i + 1));
 
   for (int j = 0; j <= i; j++)
     (*out)[j] = linebuf[j];
@@ -47,7 +54,6 @@ _readline (char **out, size_t *len, FILE *fp)
  * Initialize a new tree_pointdata_t element
  * based on a file path to read from.
  */
-
 tree_pointdata_t *
 tree_pointdata_init (const char *path)
 {
@@ -219,7 +225,6 @@ get_convhull_indices (double *xs, double *ys, int count)
 
   for (int i = 0; i < count; i++)
   {
-    /* Update average this way to avoid overflow, even if much slower. */
     if (ys[i] <= lowest_y)
     {
       lowest_x = xs[i];
@@ -333,7 +338,7 @@ process_tree_pointdata (tree_pointdata_t *data)
   int curr = data->z_num_buckets - 2;
   int prev = data->z_num_buckets - 1;
 
-  int bush_size;
+  int bush_size = data->z_num_buckets - 1;
 
   /* Find the highest trunk bucket. */
   for (; curr >= 0; curr--)
